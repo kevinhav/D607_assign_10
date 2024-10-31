@@ -5,7 +5,7 @@ format:
       embed-resources: true
 ---
 
-## Sentiment analysis from "Text Mining with R: A Tidy Approach"
+## Introduction
 
 In this article we will explore natural language processing, specifically sentiment analysis, in R. We will start with the excellent examples provided in ["Text Mining with R: A Tidy Approach"](https://www.tidytextmining.com/) which introduce the clever use of joins to categorize tokens.
 
@@ -17,6 +17,7 @@ library(tidytext)
 library(textdata)
 library(knitr)
 ```
+## Sentiment analysis from "Text Mining with R: A Tidy Approach"
 
 Using the `tidyverse` and `tidytext` packages, sentiment analysis is very straightforward in R. The basic steps are as follows;
 
