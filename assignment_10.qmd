@@ -1,0 +1,200 @@
+---
+title: "Natural Language Processing - A Primer"
+format:
+  html:
+      embed-resources: true
+---
+
+## Sentiment analysis from "Text Mining with R: A Tidy Approach"
+
+In this article we will explore natural language processing, specifically sentiment analysis, in R. We will start with the excellent examples provided in ["Text Mining with R: A Tidy Approach"](https://www.tidytextmining.com/) which introduce the clever use of joins to categorize tokens.
+
+We'll then apply what we've learned to a more topical dataset to exemplify some of the pitfalls of sentiment analysis.
+
+```{r, output=FALSE}
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(knitr)
+```
+
+Using the `tidyverse` and `tidytext` packages, sentiment analysis is very straightforward in R. The basic steps are as follows;
+
+1.  Load your corpus of documents and semantic library (`NRC` in this case)
+2.  Tokenize each document, in this case, into monograms (single words)
+3.  Left join your corpus dataset with the semantic data set on the tokens
+
+The example below demonstrates how to do this manipulation, as well as some useful summary transformations at the end.
+
+```{r}
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+
+# Load corpus and generate tokens with some formatting
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+```
+
+```{r, message = FALSE}
+# Load sentiment dataset
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+# Join and display
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE) |> 
+  head(10) |> 
+  kable()
+```
+
+Our data now shows the count of each token associated with "joy" according the the `NRC` from Jane Austen's book "Emma".
+
+## Mr. Donald Trump's vs President Trump's Tweets
+
+We'll now use a different lexical sentiment set from [M. Hu and B. Liu](https://www.cs.uic.edu/~liub/publications/kdd04-revSummary.pdf) called `huliu` to analyze another set of corpora; Donald Trump's tweets both before and during his presidency. Credit to [MarkHershey](https://github.com/MarkHershey/CompleteTrumpTweetsArchive) for collecting both datasets.
+
+We need to do a bit of adjusting of the `huliu` dataset to make it fit our analysis.
+
+```{r}
+library(lexicon)
+
+# Load the huliu sentiment set
+huliu <- tibble(hash_sentiment_huliu)
+
+# Need to update stop words to suppress outliers & noise
+custom_stop_words <- c("overly", "great", "trump")
+
+# Format the sentiment from integers to postive / negative
+huliu <- huliu |> 
+  rename("word" = "x", "sentiment" = "y") |> 
+  filter(!word %in% custom_stop_words) |>
+  mutate(sentiment = as.character(sentiment)) |> 
+  mutate(sentiment = case_when(
+    sentiment == "1" ~ "positive",
+    sentiment == "-1" ~ "negative"
+  ))
+
+```
+
+We will start with Donald Trump's Tweets prior to his presidency.
+
+### Before Presidency
+
+We'll load the pre-presidency tweets and perform the same steps as demonstrated before to tokenize our corpus and then join with the semantic data.
+
+```{r, warning=FALSE, output=FALSE}
+dttbf <- read_csv('realDonaldTrump_bf_office.csv')
+```
+
+```{r}
+# Tokenize the documents
+dttbf_tokens <- dttbf |> 
+  mutate(tweet_number = row_number()) |> 
+  unnest_tokens(word, "Tweet Text")
+```
+
+```{r}
+#| echo: true
+#| results: 'asis'
+#| warning: false
+# Join with the sentiment set
+dttbf_sentiments <- dttbf_tokens |> 
+  inner_join(huliu) |> 
+  count(word, sentiment, sort = TRUE) |> 
+  ungroup() |> 
+  group_by(sentiment) |> 
+  slice_max(n, n = 20) |> 
+  ungroup() |> 
+  mutate(word = reorder(word, n))
+
+# Plot the top words contributing to sentiment
+  ggplot(dttbf_sentiments, aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+
+You probably have some initial reaction to this data, but this is the pitfall we aluded to in the introduction. **We must be cautious when evaluating language data as we're missing context when we tokenize into monograms**.
+
+For example, we can see that `hard` is a large contributor to the negative sentiment, however the word can certainly be used in the context of "hard work", which would generally be viewed as positive.
+
+On the positive side (pun intended), we see words like `thank` and `like` have a massive impact, which again are highly dependent on context. A word like `thank` could easily be part of an exasperated "thank god" or "no thank you", and `like` is used to compare things; not necessarily a positive word by itself.
+
+Note that we've also intentionally excluded words like "great" and "trump" for obvious reasons.
+
+Before we move on to the presidential tweets, let's take a quick look at the overall sentiment for Donald Trumps tweets from 2009 to 2014 so that we can compare.
+
+```{r, message=FALSE}
+# Group sentiments into positive and negative counts
+dttbf_sentiments |> 
+  group_by(sentiment, n) |> 
+  summarize(sentiment_count = sum(n)) |> 
+  ungroup() |>
+
+# Plot
+ggplot(aes(sentiment, sentiment_count, fill = sentiment)) +
+  geom_col()
+  
+```
+
+### During presidency
+
+Now we'll repeat the process for the tweets while Mr. Trump was president.
+
+```{r, output=FALSE}
+# Load tweets
+dtt <- read_csv('realDonaldTrump_in_office.csv')
+```
+
+```{r, message=FALSE}
+dtt_tokens <- dtt |> 
+  mutate(tweet_number = row_number()) |> 
+  unnest_tokens(word, "Tweet Text")
+```
+
+```{r, echo=FALSE, message=FALSE}
+dtt_sentiments <- dtt_tokens |> 
+  inner_join(huliu) |> 
+  count(word, sentiment, sort = TRUE) |> 
+  ungroup() |> 
+  group_by(sentiment) |> 
+  slice_max(n, n = 20) |> 
+  ungroup() |> 
+  mutate(word = reorder(word, n))
+  
+  
+  ggplot(dtt_sentiments, aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+
+```{r, echo=FALSE, message=FALSE}
+dtt_sentiments |> 
+  group_by(sentiment, n) |> 
+  summarize(sentiment_count = sum(n)) |> 
+  ungroup() |>
+
+ggplot(aes(sentiment, sentiment_count, fill = sentiment)) +
+  geom_col()
+```
+
+Some interesting changes in disposition can be observed! Quickly we can see that `fake` has risen to the top of the negative words, while new words such as `win` and `strong` have appeared in the positives. Perhaps more surprisingly we can see a strong increase in negative sentiment in the presidential set, although still a net positive (with our caveats on "thank" and "like" as we observed earlier).
+
+## Conclusion
+
+Sentiment analysis, along with most natural language process, is perhaps the most "artful" modeling a data scienctist can perform, given the complexity and nuance of language. As we've seen in this data, it is easy to naively assume sentiment with a particular word, only to realize in context it's perhaps used more often with a particular idiom with a completely opposite sentiment!
+
+As data scientists, we must always remember to interpret our data in our domain context, especially in natural language processing.
